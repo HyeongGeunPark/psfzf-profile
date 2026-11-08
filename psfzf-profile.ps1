@@ -1,5 +1,5 @@
 ﻿# psfzf-profile.ps1
-# fzf + PSFzf 연동 프로파일 (alacritty + zellij, pwsh 7)
+# fzf + PSFzf 연동 프로파일 (alacritty + zellij, pwsh 7) - 콘솔 코드 페이지 65001 버전
 #
 # $PROFILE 에서 dot-source 되어 로드된다.
 #   Ctrl+T  : 파일/디렉터리를 골라 명령줄에 넣기 (명령에 맞춰 따옴표/이스케이프)
@@ -11,6 +11,7 @@
 #   fkill   : 프로세스를 골라 종료
 #
 # PSFzf 모듈 코드는 수정하지 않고, Set-PsFzfOption 과 PSFzf 공개 함수만 사용한다.
+# 콘솔 코드 페이지 949 를 유지하고 PSFzf 동작 중에만 UTF-8 로 바꾸는 버전은 main 브랜치에 있다.
 
 # [콘솔 코드 페이지를 UTF-8(65001)로 고정]
 # 한국어 Windows 의 콘솔 기본 코드 페이지는 949(CP949)이고 fzf 는 항상 UTF-8 로 입출력한다.

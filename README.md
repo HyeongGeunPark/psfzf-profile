@@ -9,6 +9,15 @@
 한국어 Windows(코드 페이지 949) 환경에서 [fzf](https://github.com/junegunn/fzf)와 [PSFzf](https://github.com/kelleyma49/PSFzf)를 PowerShell 7에서 문제없이 쓰기 위한 프로파일입니다.
 PSFzf 모듈 코드는 수정하지 않고, `Set-PsFzfOption`과 PSFzf가 공개한 함수만 사용합니다.
 
+이 저장소에는 해결 방식이 다른 두 브랜치가 있습니다.
+
+| 브랜치 | 방식 |
+|---|---|
+| `main` | 콘솔 코드 페이지 949를 유지하고, PSFzf 동작이 실행되는 동안에만 UTF-8로 바꿈 |
+| **`utf8-codepage`** (이 문서) | pwsh 콘솔 코드 페이지를 세션 전체에서 UTF-8(65001)로 바꿈 |
+
+어느 쪽이 맞는지는 아래 "주의할 점"을 참고하세요.
+
 ### 확인한 환경
 
 | 항목 | 버전 |
@@ -193,7 +202,7 @@ PSFzf의 `Ctrl+T`는 커서 위치의 단어가 경로인지 판단할 때 `Test
 - 이 콘솔에서 실행한 cmd와 `.bat`/`.cmd` 파일도 65001을 이어받습니다. CP949로 저장된 배치 파일에 한글이 있으면 오동작할 수 있습니다.
 - 코드 페이지와 관계없이 CP949 바이트를 출력하는 오래된 프로그램은 글자가 깨질 수 있습니다.
 
-이런 프로그램을 자주 쓴다면, PSFzf 동작이 실행되는 동안에만 UTF-8로 바꾸는 방식도 가능합니다. 이 저장소의 이전 커밋(`043dbe2`, `07afb00`)에 그 구현이 있습니다.
+이런 프로그램을 자주 쓴다면 **`main` 브랜치**를 쓰세요. 코드 페이지 949를 유지하고 PSFzf 동작이 실행되는 동안에만 UTF-8로 바꾸며, 이 문서의 문제를 모두 해결합니다.
 
 ### 참고: 전체 화면과 부분 화면
 
@@ -215,6 +224,15 @@ $env:_PSFZF_FZF_DEFAULT_OPTS = '--no-height'                    # 전체 화면�
 
 A PowerShell 7 profile for using [fzf](https://github.com/junegunn/fzf) and [PSFzf](https://github.com/kelleyma49/PSFzf) without problems on Korean Windows (code page 949).
 It does not modify the PSFzf module; it only uses `Set-PsFzfOption` and functions that PSFzf exports.
+
+This repository has two branches with different approaches:
+
+| Branch | Approach |
+|---|---|
+| `main` | Keeps console code page 949 and switches to UTF-8 only while a PSFzf action runs |
+| **`utf8-codepage`** (this document) | Switches the pwsh console code page to UTF-8 (65001) for the whole session |
+
+See "Caveats" below to decide which fits you.
 
 ### Tested environment
 
@@ -400,7 +418,7 @@ Comparison of native program output captured by pwsh under 949 and 65001:
 - cmd and `.bat`/`.cmd` files run from this console also inherit 65001. Batch files saved in CP949 that contain Korean may misbehave.
 - Old programs that always write CP949 bytes regardless of the code page may show garbled text.
 
-If you use such programs often, you can switch to UTF-8 only while a PSFzf action runs instead. Earlier commits in this repository (`043dbe2`, `07afb00`) contain that implementation.
+If you use such programs often, use the **`main` branch**. It keeps code page 949, switches to UTF-8 only while a PSFzf action runs, and fixes all of the problems in this document.
 
 ### Note: full screen vs. partial window
 
