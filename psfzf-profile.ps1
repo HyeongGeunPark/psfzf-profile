@@ -9,7 +9,6 @@
 #   Tab     : fzf 기반 탭 완성
 #   **<Tab> : git / Get-Process / Get-Service 등 인자 완성
 #   fkill   : 프로세스를 골라 종료
-#   cd      : 경로가 문자 그대로 존재하면 -LiteralPath 로 이동 ([ ] 가 든 경로 대응)
 #
 # PSFzf 모듈 코드는 수정하지 않고, Set-PsFzfOption 과 PSFzf 공개 함수만 사용한다.
 
@@ -27,38 +26,6 @@
 # 이 콘솔에서 실행되는 자식 프로그램(cmd 등)도 65001 을 이어받는다.
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-
-# [cd: 리터럴 경로 우선]
-# Set-Location -Path 는 경로의 [ ] 를 와일드카드로 해석한다. PSFzf 의 Ctrl+T 는 경로를
-# 따옴표로만 감싸고 와일드카드를 이스케이프하지 않으므로, '報告書 [最終版]' 같은 폴더를
-# Ctrl+T 로 넣고 cd 하면 찾지 못한다. 경로가 문자 그대로 존재하면 -LiteralPath 로 이동하고,
-# 그렇지 않으면 원래 Set-Location 동작(와일드카드, cd -, cd + 등)을 그대로 쓴다.
-function Set-LocationLiteralFirst {
-    [CmdletBinding(DefaultParameterSetName = 'Path')]
-    param(
-        [Parameter(ParameterSetName = 'Path', Position = 0, ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        [string]$Path,
-
-        [Parameter(ParameterSetName = 'LiteralPath', Mandatory, ValueFromPipelineByPropertyName)]
-        [Alias('PSPath', 'LP')]
-        [string]$LiteralPath,
-
-        [Parameter(ParameterSetName = 'Stack', ValueFromPipelineByPropertyName)]
-        [string]$StackName,
-
-        [switch]$PassThru
-    )
-    process {
-        if ($PSCmdlet.ParameterSetName -eq 'Path' -and $Path -and
-            $Path -notin '-', '+' -and (Test-Path -LiteralPath $Path)) {
-            Set-Location -LiteralPath $Path -PassThru:$PassThru
-        }
-        else {
-            Set-Location @PSBoundParameters
-        }
-    }
-}
-Set-Alias -Name cd -Value Set-LocationLiteralFirst -Option AllScope -Force
 
 if (-not (Get-Command fzf -CommandType Application -ErrorAction SilentlyContinue) -or
     -not (Get-Module -ListAvailable -Name PSFzf)) {
