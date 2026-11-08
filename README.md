@@ -102,13 +102,23 @@ fzf 실행 파일이나 PSFzf 모듈이 없으면 경고만 출력하고 PSFzf �
   | `café_x2` | `cafe_x2` | **실패** |
   | `我们_x4` | `我?_x4` | 이동됨 (`?` 와일드카드로 우연히 일치) |
 
-#### 문제 4. `Alt+C`로 대괄호가 들어간 디렉터리에 이동하지 못한다
+#### 문제 4. 대괄호가 든 경로를 와일드카드로 해석한다 (`Alt+C`, `Ctrl+T`)
+
+공통 원인은 **PowerShell cmdlet의 `-Path` 매개변수가 경로를 와일드카드 패턴으로 해석한다**는 점입니다. `報告書 [最終版]` 같은 경로의 `[...]`는 "괄호 안 글자 중 하나"로 해석되어 실제 폴더를 찾지 못합니다. 인코딩과는 관계없이 발생합니다.
+
+이 규칙을 피하는 정석은 두 가지입니다.
+
+- `-LiteralPath`로 넘겨 와일드카드 해석을 끈다.
+- 와일드카드 문자를 백틱으로 이스케이프(`` `[ ``, `` `] ``)해서 `-Path`로 넘긴다.
+
+PSFzf에서는 이 원인이 두 곳에서 드러납니다.
+
+##### 4-1. `Alt+C`로 대괄호가 든 디렉터리에 이동하지 못한다
 
 - PSFzf의 기본 `Alt+C` 동작은 `Set-Location $Location`입니다.
-- PowerShell은 `-Path`로 받은 경로의 `[...]`를 **와일드카드 패턴**으로 해석합니다. 그래서 `報告書 [最終版]` 같은 폴더는 "괄호 안 글자 중 하나"로 해석되어 찾지 못합니다.
-- fzf에서 선택까지는 정상이지만 이동만 실패합니다. 이 문제는 인코딩과 관계없이 발생합니다.
+- fzf에서 선택까지는 정상이지만, `Set-Location`이 경로를 와일드카드로 해석해 이동에 실패합니다.
 
-#### 문제 5. `Ctrl+T`로 넣은 경로가 명령에 따라 제대로 동작하지 않는다
+##### 4-2. `Ctrl+T`로 넣은 경로가 cmdlet에서 동작하지 않는다
 
 - PSFzf의 `Ctrl+T`는 결과를 `FixCompletionResult`로 다듬습니다. 공백이 있으면 **큰따옴표로 감싸기만** 하고 다른 처리는 하지 않습니다.
 - 그래서 다음 문제가 생깁니다.
@@ -129,10 +139,25 @@ fzf 실행 파일이나 PSFzf 모듈이 없으면 경고만 출력하고 PSFzf �
 | 문제 | 해결 |
 |---|---|
 | 1, 2, 3 | pwsh 콘솔의 `[Console]::InputEncoding`/`OutputEncoding`을 **UTF-8(65001)로 고정**합니다. fzf가 UTF-8 바이트를 받고(1), .NET이 fzf 출력을 UTF-8로 디코딩하고(2), 자식 cmd도 65001을 이어받아 `dir` 목록을 UTF-8로 내보냅니다(3). |
-| 4 | `Set-PsFzfOption -AltCCommand`로 이동 명령을 `Set-Location -LiteralPath $Location`으로 바꿉니다. |
-| 5 | `Ctrl+T`를 감싸서, PSFzf가 경로를 넣은 뒤 **새로 들어간 경로만** PowerShell 탭 완성과 같은 규칙으로 다시 씁니다. |
+| 4-1 | `Set-PsFzfOption -AltCCommand`로 이동 명령을 `Set-Location -LiteralPath $Location`으로 바꿉니다. |
+| 4-2 | `Ctrl+T`를 감싸서, PSFzf가 경로를 넣은 뒤 **새로 들어간 경로만** PowerShell 탭 완성과 같은 규칙으로 다시 씁니다. |
 
-`Ctrl+T`의 처리 규칙(`Format-PsFzfInsertedPath`, `Get-PsFzfPathEscapeMode`):
+#### 4-1과 4-2를 다르게 고친 이유
+
+원인은 같지만, 프로파일이 손댈 수 있는 위치가 다릅니다.
+
+| | `Alt+C` (4-1) | `Ctrl+T` (4-2) |
+|---|---|---|
+| 프로파일이 다루는 것 | **명령 실행** (`Set-Location`을 직접 호출) | **명령줄 텍스트** (실행은 사용자가 나중에 함) |
+| 경로를 받을 명령 | 항상 `Set-Location` | 넣는 시점에는 정해지지 않음 (`cd`, `notepad`, `git` 등) |
+| 해결 | `-LiteralPath` | 명령에 맞춘 이스케이프 |
+
+- `Alt+C`는 받을 명령이 정해져 있고 실행을 직접 하므로, 와일드카드 해석을 끄는 `-LiteralPath`가 가장 직접적입니다. 이스케이프해서 `-Path`로 넘겨도 결과는 같지만 얻는 이점이 없습니다.
+- `Ctrl+T`는 텍스트만 넣으므로, 사용자가 입력할 명령에 `-LiteralPath`를 붙일 방법이 없습니다. 외부 프로그램은 그런 매개변수가 없고 백틱을 그대로 받기 때문에, 일괄 이스케이프도 맞지 않습니다. 그래서 PowerShell 탭 완성처럼 명령 종류를 보고 이스케이프합니다.
+
+#### `Ctrl+T`의 처리 규칙
+
+`Format-PsFzfInsertedPath`, `Get-PsFzfPathEscapeMode`가 다음 순서로 처리합니다.
 
 1. `Ctrl+T` 실행 전과 후의 명령줄을 비교해 새로 들어간 경로 토큰을 찾습니다.
 2. PowerShell 파서로 그 위치의 명령을 찾고, 별칭은 실제 명령으로 바꿔 종류를 확인합니다.
@@ -145,7 +170,11 @@ fzf 실행 파일이나 PSFzf 모듈이 없으면 경고만 출력하고 PSFzf �
 | 명령 이름 자리, 식(`$p = `), 알 수 없는 명령 | 작은따옴표만 | |
 | 특수 문자가 없는 경로 | 그대로 | `cd C:\work\日本語` |
 
-모든 경우에 이름 속 `'`는 `''`로 바꿉니다. 작은따옴표 안에서는 `$`와 백틱이 해석되지 않으므로 문제 5의 두 번째 경우도 함께 해결됩니다.
+모든 경우에 이름 속 `'`는 `''`로 바꿉니다. 작은따옴표 안에서는 `$`와 백틱이 해석되지 않으므로 4-2의 두 번째 경우도 함께 해결됩니다.
+
+#### 알려진 한계
+
+PSFzf의 `Ctrl+T`는 커서 위치의 단어가 경로인지 판단할 때 `Test-Path $currentPath`를 씁니다. 이것도 같은 원인으로 와일드카드 해석을 합니다. 코드상으로는, 대괄호가 든 경로를 이스케이프하지 않고 직접 입력한 뒤 `Ctrl+T`를 누르면 그 경로를 인식하지 못하고 현재 폴더에서 검색을 시작합니다. PSFzf 내부 코드라 공개 함수만으로는 고칠 수 없고, 검색 시작 위치만 달라지므로 그대로 둡니다.
 
 ### 주의할 점: 콘솔 코드 페이지 65001의 영향
 
@@ -280,13 +309,23 @@ The code page only applies to **paths that read or write bytes**. PowerShell str
   | `café_x2` | `cafe_x2` | **fails** |
   | `我们_x4` | `我?_x4` | changes directory (matched by the `?` wildcard by accident) |
 
-#### Problem 4. `Alt+C` cannot change to directories whose names contain brackets
+#### Problem 4. Paths with brackets are treated as wildcards (`Alt+C`, `Ctrl+T`)
+
+The common cause is that **the `-Path` parameter of PowerShell cmdlets treats paths as wildcard patterns**. In a path such as `報告書 [最終版]`, `[...]` is interpreted as "one of the characters in the brackets", so the actual folder is not found. This happens regardless of encoding.
+
+There are two standard ways around this rule:
+
+- Pass the path with `-LiteralPath` to turn off wildcard interpretation.
+- Escape wildcard characters with backticks (`` `[ ``, `` `] ``) and pass it with `-Path`.
+
+In PSFzf, this cause shows up in two places.
+
+##### 4-1. `Alt+C` cannot change to directories whose names contain brackets
 
 - PSFzf's default `Alt+C` action is `Set-Location $Location`.
-- PowerShell treats `[...]` in a `-Path` argument as a **wildcard pattern**. A folder such as `報告書 [最終版]` is interpreted as "one of the characters in the brackets" and is not found.
-- Selecting the directory in fzf works; only the location change fails. This happens regardless of encoding.
+- Selecting the directory in fzf works, but `Set-Location` treats the path as a wildcard and the change fails.
 
-#### Problem 5. Paths inserted by `Ctrl+T` do not work correctly with some commands
+##### 4-2. Paths inserted by `Ctrl+T` do not work with cmdlets
 
 - PSFzf's `Ctrl+T` passes results through `FixCompletionResult`, which **only wraps them in double quotes** when they contain spaces.
 - This causes the following problems:
@@ -307,10 +346,25 @@ The code page only applies to **paths that read or write bytes**. PowerShell str
 | Problem | Solution |
 |---|---|
 | 1, 2, 3 | **Sets the pwsh console's `[Console]::InputEncoding`/`OutputEncoding` to UTF-8 (65001).** fzf receives UTF-8 bytes (1), .NET decodes fzf's output as UTF-8 (2), and the child cmd inherits 65001 and writes the `dir` list in UTF-8 (3). |
-| 4 | `Set-PsFzfOption -AltCCommand` replaces the location change with `Set-Location -LiteralPath $Location`. |
-| 5 | Wraps `Ctrl+T` so that, after PSFzf inserts the paths, **only the newly inserted paths** are rewritten with the same rules as PowerShell tab completion. |
+| 4-1 | `Set-PsFzfOption -AltCCommand` replaces the location change with `Set-Location -LiteralPath $Location`. |
+| 4-2 | Wraps `Ctrl+T` so that, after PSFzf inserts the paths, **only the newly inserted paths** are rewritten with the same rules as PowerShell tab completion. |
 
-`Ctrl+T` rewriting rules (`Format-PsFzfInsertedPath`, `Get-PsFzfPathEscapeMode`):
+#### Why 4-1 and 4-2 are fixed differently
+
+The cause is the same, but what the profile can control is different.
+
+| | `Alt+C` (4-1) | `Ctrl+T` (4-2) |
+|---|---|---|
+| What the profile handles | **Running the command** (calls `Set-Location` directly) | **Command-line text** (the user runs it later) |
+| Command that receives the path | Always `Set-Location` | Not known when the text is inserted (`cd`, `notepad`, `git`, ...) |
+| Fix | `-LiteralPath` | Escaping based on the command |
+
+- `Alt+C` knows the receiving command and runs it directly, so `-LiteralPath`, which turns off wildcard interpretation, is the most direct fix. Escaping the path and passing it with `-Path` gives the same result but has no advantage.
+- `Ctrl+T` only inserts text, so it cannot add `-LiteralPath` to whatever command the user types. Native programs have no such parameter and receive backticks literally, so escaping everything is not right either. It therefore escapes based on the command type, like PowerShell tab completion.
+
+#### `Ctrl+T` rewriting rules
+
+`Format-PsFzfInsertedPath` and `Get-PsFzfPathEscapeMode` work as follows:
 
 1. Compare the command line before and after `Ctrl+T` to find the inserted path tokens.
 2. Use the PowerShell parser to find the command at that position, resolving aliases to the actual command, and check its type.
@@ -323,7 +377,11 @@ The code page only applies to **paths that read or write bytes**. PowerShell str
 | Command-name position, expression (`$p = `), unknown command | Single quotes only | |
 | Path without special characters | Unchanged | `cd C:\work\日本語` |
 
-In every case, `'` in a name is doubled to `''`. `$` and backticks are not interpreted inside single quotes, which also fixes the second case of Problem 5.
+In every case, `'` in a name is doubled to `''`. `$` and backticks are not interpreted inside single quotes, which also fixes the second case of 4-2.
+
+#### Known limitation
+
+PSFzf's `Ctrl+T` uses `Test-Path $currentPath` to decide whether the word at the cursor is a path, which also interprets wildcards for the same reason. Based on the code, if you type a path containing brackets without escaping it and then press `Ctrl+T`, PSFzf does not recognize that path and starts searching from the current folder. This is internal PSFzf code that cannot be fixed with exported functions alone, and it only changes where the search starts, so it is left as is.
 
 ### Caveats: effects of console code page 65001
 
