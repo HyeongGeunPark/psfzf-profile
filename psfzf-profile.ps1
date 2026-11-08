@@ -2,7 +2,7 @@
 # fzf + PSFzf 연동 프로파일 (alacritty + zellij, pwsh 7)
 #
 # $PROFILE 에서 dot-source 되어 로드된다.
-#   Ctrl+T  : 파일/디렉터리를 골라 명령줄에 넣기
+#   Ctrl+T  : 파일/디렉터리를 골라 명령줄에 넣기 (명령에 맞춰 따옴표/이스케이프)
 #   Ctrl+R  : 명령 기록 검색
 #   Alt+C   : 디렉터리를 골라 바로 이동
 #   Alt+A   : 이전 명령에서 쓴 인자 검색
