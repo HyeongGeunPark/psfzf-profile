@@ -164,7 +164,7 @@ fzf 실행 파일이나 PSFzf 모듈이 없으면 경고만 출력하고 PSFzf �
 - 이 콘솔에서 실행한 cmd와 `.bat`/`.cmd` 파일도 65001을 이어받습니다. CP949로 저장된 배치 파일에 한글이 있으면 오동작할 수 있습니다.
 - 코드 페이지와 관계없이 CP949 바이트를 출력하는 오래된 프로그램은 글자가 깨질 수 있습니다.
 
-이런 프로그램을 자주 쓴다면, PSFzf 동작이 실행되는 동안에만 UTF-8로 바꾸는 방식도 가능합니다. 이 저장소의 이전 커밋(`043dbe2`, `86eb5e4`)에 그 구현이 있습니다.
+이런 프로그램을 자주 쓴다면, PSFzf 동작이 실행되는 동안에만 UTF-8로 바꾸는 방식도 가능합니다. 이 저장소의 이전 커밋(`043dbe2`, `07afb00`)에 그 구현이 있습니다.
 
 ### 참고: 전체 화면과 부분 화면
 
@@ -342,7 +342,7 @@ Comparison of native program output captured by pwsh under 949 and 65001:
 - cmd and `.bat`/`.cmd` files run from this console also inherit 65001. Batch files saved in CP949 that contain Korean may misbehave.
 - Old programs that always write CP949 bytes regardless of the code page may show garbled text.
 
-If you use such programs often, you can switch to UTF-8 only while a PSFzf action runs instead. Earlier commits in this repository (`043dbe2`, `86eb5e4`) contain that implementation.
+If you use such programs often, you can switch to UTF-8 only while a PSFzf action runs instead. Earlier commits in this repository (`043dbe2`, `07afb00`) contain that implementation.
 
 ### Note: full screen vs. partial window
 
