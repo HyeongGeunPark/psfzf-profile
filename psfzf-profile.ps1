@@ -51,3 +51,95 @@ Set-PsFzfOption `
 
 # 표준 탭 완성(TabCompleteNext) 대신 fzf 기반 완성을 사용한다. (PSFzf README 권장)
 Set-PSReadLineKeyHandler -Key Tab -ScriptBlock { Invoke-FzfTabCompletion }
+
+# [Ctrl+T: 문맥에 맞춘 경로 이스케이프]
+# PSFzf 의 Ctrl+T 는 경로에 공백이 있으면 큰따옴표로 감싸기만 한다(FixCompletionResult).
+#   - [ ] 를 이스케이프하지 않아 cd, Get-ChildItem 등 와일드카드를 해석하는 명령에서
+#     '報告書 [最終版]' 같은 경로를 찾지 못한다.
+#   - 큰따옴표 안의 $ 와 ` 가 해석되어 그런 글자가 든 경로가 바뀐다.
+# PowerShell 자체 탭 완성처럼, 작은따옴표로 감싸고 명령 종류에 따라 이스케이프한다.
+#   - 외부 프로그램(notepad, git 등)의 인자 : 따옴표만 ('...', ' 는 '' 로)
+#   - cmdlet / 함수 / 스크립트의 인자       : 따옴표 + 와일드카드 이스케이프 ([ ] → `[ `])
+#   - 명령 이름 자리, 명령이 아닌 식, 알 수 없는 명령 : 따옴표만
+
+# 경로가 들어간 위치의 명령을 보고 'Escape' 또는 'Quote' 를 정한다.
+function Get-PsFzfPathEscapeMode {
+    param([string]$Line, [int]$Offset)
+
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput($Line, [ref]$null, [ref]$null)
+    $cmdAst = $ast.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+            $n.Extent.StartOffset -le $Offset -and $Offset -le $n.Extent.EndOffset
+        }, $true) |
+        Sort-Object { $_.Extent.EndOffset - $_.Extent.StartOffset } |
+        Select-Object -First 1
+    if (-not $cmdAst) { return 'Quote' }
+
+    $nameElement = $cmdAst.CommandElements[0]
+    if ($Offset -le $nameElement.Extent.EndOffset) { return 'Quote' }
+
+    $name = $cmdAst.GetCommandName()
+    if (-not $name) { return 'Quote' }
+    $info = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
+    while ($info -is [System.Management.Automation.AliasInfo]) { $info = $info.ResolvedCommand }
+    if (-not $info -or $info.CommandType -eq 'Application') { return 'Quote' }
+    return 'Escape'
+}
+
+# Ctrl+T 전후의 명령줄을 비교해 새로 들어간 경로 토큰만 다시 쓴다.
+# 반환값: @{ Line = 바뀐 명령줄; Cursor = 커서 위치 }, 바꿀 것이 없으면 $null
+function Format-PsFzfInsertedPath {
+    param([string]$Before, [string]$After)
+
+    if ($Before -eq $After) { return $null }
+
+    # 바뀐 구간 [start, end) 를 앞뒤 공통 부분을 빼서 구한다.
+    $max = [Math]::Min($Before.Length, $After.Length)
+    $start = 0
+    while ($start -lt $max -and $Before[$start] -eq $After[$start]) { $start++ }
+    $suffix = 0
+    while ($suffix -lt ($max - $start) -and
+        $Before[$Before.Length - 1 - $suffix] -eq $After[$After.Length - 1 - $suffix]) { $suffix++ }
+    $end = $After.Length - $suffix
+
+    $tokens = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput($After, [ref]$tokens, [ref]$null)
+    $kinds = 'StringLiteral', 'StringExpandable', 'Generic'
+    $targets = @($tokens | Where-Object {
+            $_.Kind -in $kinds -and $_.Extent.StartOffset -lt $end -and $_.Extent.EndOffset -gt $start
+        })
+    if ($targets.Count -eq 0) { return $null }
+
+    $mode = Get-PsFzfPathEscapeMode -Line $After -Offset $targets[0].Extent.StartOffset
+    $line = $After
+    $cursorEnd = $targets[-1].Extent.EndOffset
+    $delta = 0
+    # 뒤쪽 토큰부터 바꿔야 앞쪽 토큰의 위치가 바뀌지 않는다.
+    for ($i = $targets.Count - 1; $i -ge 0; $i--) {
+        $t = $targets[$i]
+        $value = $t.Value
+        if ($mode -eq 'Escape') { $value = [System.Management.Automation.WildcardPattern]::Escape($value) }
+        if ($value -notmatch '[\s''"`$&@(){};,|<>#\[\]*?]' -and $t.Kind -eq 'Generic') { continue }
+        $new = "'" + $value.Replace("'", "''") + "'"
+        $line = $line.Remove($t.Extent.StartOffset, $t.Extent.EndOffset - $t.Extent.StartOffset).Insert($t.Extent.StartOffset, $new)
+        $delta += $new.Length - ($t.Extent.EndOffset - $t.Extent.StartOffset)
+    }
+    if ($line -eq $After) { return $null }
+    return @{ Line = $line; Cursor = $cursorEnd + $delta }
+}
+
+Set-PSReadLineKeyHandler -Chord 'Ctrl+t' -BriefDescription 'FzfProviderContextEscape' `
+    -Description 'PSFzf Ctrl+T, then quote/escape the inserted paths like PowerShell tab completion' `
+    -ScriptBlock {
+        $before = $null; $cursor = $null
+        [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$before, [ref]$cursor)
+        Invoke-FzfPsReadlineHandlerProvider
+        $after = $null
+        [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$after, [ref]$cursor)
+        $fixed = Format-PsFzfInsertedPath -Before $before -After $after
+        if ($fixed) {
+            [Microsoft.PowerShell.PSConsoleReadLine]::Replace(0, $after.Length, $fixed.Line)
+            [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($fixed.Cursor)
+        }
+    }
