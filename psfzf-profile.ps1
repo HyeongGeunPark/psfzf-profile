@@ -36,6 +36,14 @@ if (-not (Get-Command fzf -CommandType Application -ErrorAction SilentlyContinue
 
 Import-Module PSFzf
 
+# [fzf 화면 크기: 높이 60% 부분 화면으로 통일]
+# PSFzf 기본값은 기능마다 다르다. Invoke-Fzf(대부분의 기능)는 Alacritty/Zellij 에서 전체 화면,
+# Invoke-FzfDefaultSystem(Ctrl+T 기본 경로)은 항상 높이 40% 부분 화면으로 띄운다.
+# PSFzf 는 fzf 를 띄울 때마다 이 값을 읽고, 이 값에 --height 가 있으면 두 함수 모두 이 값을 따른다.
+# 부분 화면(light 렌더러)의 한글 입력 문제(위 1)는 위 코드 페이지 설정으로 이미 해결된다.
+# 다른 값을 쓰려면 $PROFILE 에서 이 파일을 불러온 뒤 지정한다.
+$env:_PSFZF_FZF_DEFAULT_OPTS = '--height=60% --layout=reverse'
+
 Set-PsFzfOption `
     -PSReadlineChordProvider 'Ctrl+t' `
     -PSReadlineChordReverseHistory 'Ctrl+r' `
