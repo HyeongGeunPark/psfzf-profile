@@ -45,6 +45,8 @@ PSFzf 모듈 코드는 수정하지 않고, `Set-PsFzfOption`과 PSFzf가 공개
 
 이 프로파일은 **콘솔 코드 페이지(949)를 바꾸지 않습니다.** fzf를 쓰는 동작이 실행되는 동안에만 잠시 UTF-8로 바꿨다가 되돌립니다.
 
+fzf는 모든 동작에서 높이 60% 부분 화면으로 뜹니다. 크기를 바꾸는 방법은 아래 "참고: 전체 화면과 부분 화면"을 보세요.
+
 ### 설치
 
 ```powershell
@@ -225,12 +227,20 @@ PSFzf가 fzf를 어떤 크기로 띄울지는 사용하는 내부 함수에 따�
 - `Invoke-Fzf`(대부분의 기능): `WT_SESSION`, `ConEmuANSI`, `TERM_PROGRAM=WezTerm` 중 하나가 있을 때만 `--height=40%`를 붙입니다. Alacritty나 Zellij에서는 **전체 화면**입니다.
 - `Invoke-FzfDefaultSystem`(`Ctrl+T` 기본 경로): 터미널과 관계없이 항상 `--height=40%`를 붙입니다. **부분 화면**입니다.
 
-통일하려면 `$PROFILE`에서 `$env:_PSFZF_FZF_DEFAULT_OPTS`를 설정합니다. PSFzf는 fzf를 띄울 때마다 이 값을 읽고, 두 함수 모두 이 값에 `--height`가 있으면 기본값을 붙이지 않습니다.
+PSFzf는 fzf를 띄울 때마다 `$env:_PSFZF_FZF_DEFAULT_OPTS`를 읽고, 두 함수 모두 이 값에 `--height`가 있으면 기본값을 붙이지 않습니다. 이 프로파일은 이 값을 다음처럼 설정해 **높이 60% 부분 화면으로 통일**합니다.
 
 ```powershell
-$env:_PSFZF_FZF_DEFAULT_OPTS = '--height=40% --layout=reverse'  # 부분 화면으로 통일
-$env:_PSFZF_FZF_DEFAULT_OPTS = '--no-height'                    # 전체 화면으로 통일
+$env:_PSFZF_FZF_DEFAULT_OPTS = '--height=60% --layout=reverse'
 ```
+
+다른 값을 쓰려면 `$PROFILE`에서 psfzf-profile을 불러온 **뒤**에 지정합니다.
+
+```powershell
+$env:_PSFZF_FZF_DEFAULT_OPTS = '--height=40% --layout=reverse'  # 높이 40% 부분 화면
+$env:_PSFZF_FZF_DEFAULT_OPTS = '--no-height'                    # 전체 화면
+```
+
+부분 화면에서는 fzf가 light 렌더러를 쓰므로 문제 1이 모든 동작에 해당합니다. 이 프로파일의 키와 `fkill`은 래퍼 안에서 실행되므로 문제없습니다. 하지만 PSFzf 함수를 직접 실행하면(예: `Get-ChildItem | Invoke-Fzf`) 래퍼를 거치지 않으므로, 한글을 입력하는 순간 fzf가 꺼집니다. 이런 명령은 `Invoke-PsFzfWithUtf8Console { Get-ChildItem | Invoke-Fzf }`처럼 감싸서 실행하거나, 전체 화면(`--no-height`)을 쓰세요.
 
 ---
 
@@ -274,6 +284,8 @@ It may work with other versions, but the analysis below is based on the source c
 | `fkill` | Pick processes and kill them |
 
 This profile **does not change the console code page (949).** It switches to UTF-8 only while an action that uses fzf runs, and then restores it.
+
+fzf opens in a partial window 60% high for every action. See "Note: full screen vs. partial window" below to change the size.
 
 ### Installation
 
@@ -455,9 +467,17 @@ Whether PSFzf shows fzf full screen or in a partial window depends on the intern
 - `Invoke-Fzf` (most features): adds `--height=40%` only when `WT_SESSION`, `ConEmuANSI` or `TERM_PROGRAM=WezTerm` is set. In Alacritty or Zellij it is **full screen**.
 - `Invoke-FzfDefaultSystem` (default `Ctrl+T` path): always adds `--height=40%`, regardless of the terminal. It is a **partial window**.
 
-To make them consistent, set `$env:_PSFZF_FZF_DEFAULT_OPTS` in your `$PROFILE`. PSFzf reads this value each time it runs fzf, and both functions skip their default when it contains `--height`.
+PSFzf reads `$env:_PSFZF_FZF_DEFAULT_OPTS` each time it runs fzf, and both functions skip their default when it contains `--height`. This profile sets it as follows to use **a partial window 60% high everywhere**:
 
 ```powershell
-$env:_PSFZF_FZF_DEFAULT_OPTS = '--height=40% --layout=reverse'  # partial window everywhere
-$env:_PSFZF_FZF_DEFAULT_OPTS = '--no-height'                    # full screen everywhere
+$env:_PSFZF_FZF_DEFAULT_OPTS = '--height=60% --layout=reverse'
 ```
+
+To use a different value, set it in your `$PROFILE` **after** loading psfzf-profile:
+
+```powershell
+$env:_PSFZF_FZF_DEFAULT_OPTS = '--height=40% --layout=reverse'  # partial window 40% high
+$env:_PSFZF_FZF_DEFAULT_OPTS = '--no-height'                    # full screen
+```
+
+In a partial window fzf uses the light renderer, so Problem 1 applies to every action. The keys and `fkill` in this profile run inside the wrapper, so they are fine. But if you run a PSFzf function directly (e.g. `Get-ChildItem | Invoke-Fzf`), it does not go through the wrapper, and fzf exits as soon as you type Korean. Run such commands wrapped, as in `Invoke-PsFzfWithUtf8Console { Get-ChildItem | Invoke-Fzf }`, or use full screen (`--no-height`).
