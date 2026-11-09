@@ -7,7 +7,7 @@
 ## 한국어
 
 한국어 Windows(코드 페이지 949) 환경에서 [fzf](https://github.com/junegunn/fzf)와 [PSFzf](https://github.com/kelleyma49/PSFzf)를 PowerShell 7에서 문제없이 쓰기 위한 프로파일입니다.
-PSFzf 모듈 코드는 수정하지 않고, `Set-PsFzfOption`과 PSFzf가 공개한 함수만 사용합니다.
+PSFzf 모듈 코드는 수정하지 않고, `Set-PsFzfOption`, PSFzf가 공개한 함수, PSFzf README에 문서화된 환경 변수만 사용합니다.
 
 이 저장소에는 해결 방식이 다른 두 브랜치가 있습니다.
 
@@ -27,6 +27,7 @@ PSFzf 모듈 코드는 수정하지 않고, `Set-PsFzfOption`과 PSFzf가 공개
 | PSReadLine | 2.4.5 |
 | PSFzf | 2.7.12 |
 | fzf | 0.75.0 |
+| fd (선택) | 10.5.0 |
 | 터미널 | Alacritty + Zellij |
 
 다른 버전에서도 동작할 수 있지만, 아래 분석은 위 버전의 소스를 기준으로 합니다.
@@ -47,10 +48,13 @@ PSFzf 모듈 코드는 수정하지 않고, `Set-PsFzfOption`과 PSFzf가 공개
 
 fzf는 모든 동작에서 높이 60% 부분 화면으로 뜹니다. 크기를 바꾸는 방법은 아래 "참고: 전체 화면과 부분 화면"을 보세요.
 
+fd가 설치되어 있으면 `Alt+C` 목록을 fd로 만듭니다. 아래 "참고: fd로 만드는 `Alt+C` 목록"을 보세요.
+
 ### 설치
 
 ```powershell
 winget install junegunn.fzf
+winget install sharkdp.fd                # 선택: Alt+C 목록을 fd로 만든다
 Install-Module PSFzf -Scope CurrentUser
 git clone <이 저장소 URL> <원하는 경로>\psfzf-profile
 ```
@@ -242,12 +246,86 @@ $env:_PSFZF_FZF_DEFAULT_OPTS = '--no-height'                    # 전체 화면
 
 부분 화면에서는 fzf가 light 렌더러를 쓰므로 문제 1이 모든 동작에 해당합니다. 이 프로파일의 키와 `fkill`은 래퍼 안에서 실행되므로 문제없습니다. 하지만 PSFzf 함수를 직접 실행하면(예: `Get-ChildItem | Invoke-Fzf`) 래퍼를 거치지 않으므로, 한글을 입력하는 순간 fzf가 꺼집니다. 이런 명령은 `Invoke-PsFzfWithUtf8Console { Get-ChildItem | Invoke-Fzf }`처럼 감싸서 실행하거나, 전체 화면(`--no-height`)을 쓰세요.
 
+### 참고: fd로 만드는 `Alt+C` 목록
+
+[fd](https://github.com/sharkdp/fd)가 설치되어 있으면 이 프로파일은 `Alt+C` 목록을 PSFzf 기본(`cmd /c dir /s/b/ad`) 대신 fd로 만듭니다. fd가 없으면 PSFzf 기본 동작을 그대로 씁니다.
+
+```powershell
+function Get-PsFzfAltCDirectory {
+    $batch = [System.Collections.Generic.List[string]]::new(1000)
+    fd --type directory @args | ForEach-Object {
+        $batch.Add($_)
+        if ($batch.Count -ge 1000) { $batch -join "`n"; $batch.Clear() }
+    }
+    if ($batch.Count -gt 0) { $batch -join "`n" }
+}
+$env:FZF_ALT_C_COMMAND = 'Get-PsFzfAltCDirectory --hidden --no-ignore --exclude .git --exclude node_modules'
+```
+
+PSFzf는 `FZF_ALT_C_COMMAND`가 있으면 그 명령의 출력으로 `Alt+C` 목록을 만듭니다. `Get-PsFzfAltCDirectory`는 받은 인자를 fd에 그대로 넘기고, fd 출력을 1,000줄씩 묶어 내보냅니다. `--hidden --no-ignore`이므로 숨김 폴더와 `.gitignore`에 적힌 폴더도 모두 목록에 나오고, `--exclude`로 `.git`과 `node_modules`는 뺍니다.
+
+#### fd를 넣은 이유
+
+PSFzf 기본(`cmd dir`)보다 빠르기 때문입니다. 아래는 PSFzf의 실제 `Alt+C` 핸들러가 목록을 끝까지 받는 데 걸린 시간이며, 3회 측정의 중앙값입니다. fzf에 일치하는 항목이 없는 `--filter`를 줘서 목록을 끝까지 읽게 했고, 화면을 그리는 시간은 들어가지 않습니다.
+
+| 측정 위치 | `cmd dir` (PSFzf 기본) | fd (이 프로파일) |
+|---|---|---|
+| 코드 저장소가 모인 폴더 | 26,010개, 2.69초 | 20,972개, 0.47초 |
+| 사용자 홈 (AppData 포함) | 151,013개, 18.09초 | 133,909개, 4.08초 |
+
+fd 목록이 적은 것은 `.git`, `node_modules`, 정션을 빼기 때문입니다(아래 "`cmd dir`과 다른 점").
+
+#### 1,000줄씩 묶어 넘기는 이유
+
+PSFzf는 `FZF_ALT_C_COMMAND`의 출력을 `Invoke-Fzf`로 파이프해 fzf에 넘깁니다. `Invoke-Fzf`는 받은 항목마다 fzf 입력에 한 줄을 쓰고, `Flush()`를 부르고, fzf 프로세스 상태를 확인합니다. fd 출력을 한 줄씩 넘기면 폴더 수만큼 이 처리가 반복되어, 목록이 크면 fd 자체보다 이 처리가 더 오래 걸립니다.
+
+| 측정 위치 | fd를 fzf에 직접 연결 (참고) | fd, 한 줄씩 | fd, 1,000줄씩 묶음 |
+|---|---|---|---|
+| 코드 저장소가 모인 폴더 | 0.44초 | 1.31초 | 0.47초 |
+| 사용자 홈 (AppData 포함) | 3.32초 | 9.10초 | 4.08초 |
+
+`Invoke-Fzf`는 받은 문자열을 `WriteLine`으로 그대로 쓰므로, 여러 줄을 한 문자열로 묶어 넘기면 fzf는 같은 목록을 여러 줄로 받습니다. 1,000줄씩 묶으면 항목 처리 횟수가 1,000분의 1로 줄어, fd를 fzf에 직접 연결한 것과 거의 같은 시간이 걸립니다. 전체를 한 문자열로 묶지 않고 1,000줄씩 나누는 것은 fd가 끝나기 전에도 fzf 목록이 차례로 채워지게 하기 위해서입니다.
+
+확인한 내용은 다음과 같습니다.
+
+- 한 줄씩 넘길 때와 묶어 넘길 때 fzf가 받는 폴더 목록이 같습니다. 정렬해서 비교했습니다. fd는 병렬로 탐색하므로 실행할 때마다 순서만 다릅니다.
+- 묶음 크기 1, 2, 3, 1,000에서 모두 같은 폴더로 이동했습니다. 묶음 안의 줄은 `\n`, 묶음의 마지막 줄은 `\r\n`으로 끝나지만 fzf는 둘을 똑같이 읽습니다.
+- 목록이 다 차기 전에 fzf를 끝내도(예: Esc) 바로 정리되고, fd 프로세스가 남지 않습니다.
+
+#### 이렇게 구현한 이유
+
+- **`Set-PsFzfOption -EnableFd` 대신 `FZF_ALT_C_COMMAND`를 씁니다.** PSFzf에는 fd를 쓰게 하는 옵션이 있지만, 2.7.12에서는 Windows에서 제대로 동작하지 않습니다. PSFzf는 fd를 `fd . --full-path <경로> --fixed-strings`로 실행합니다. `--fixed-strings` 때문에 `.`을 글자 그대로 찾고, `--full-path` 때문에 절대 경로 전체에서 찾으므로 **절대 경로에 `.`이 없는 항목은 목록에서 빠집니다.** 점이 없는 폴더에서는 `Alt+C` 목록이 비었고, 코드 저장소가 모인 폴더에서는 숨김·무시된 폴더를 빼고 비교해도 6,916개 중 1,895개만 나왔습니다. `Ctrl+T`에서도 확장자가 없는 파일과 폴더가 빠집니다. 반면 `FZF_ALT_C_COMMAND`는 PSFzf README의 "Overriding Behavior"에 문서화된 환경 변수라서, PSFzf 코드를 고치지 않는다는 이 프로파일의 원칙에도 맞습니다.
+- **`Alt+C`에만 쓰고 `Ctrl+T`에는 쓰지 않습니다.** `Ctrl+T`의 기본 경로는 fzf 내장 탐색기를 써서 이미 빠릅니다. 게다가 `FZF_CTRL_T_COMMAND`를 지정하면 PSFzf는 커서 위치의 경로를 무시하고 항상 그 명령을 실행하므로, 커서 위치의 경로에서 검색을 시작하는 기능이 사라집니다.
+- **`Alt+C`에는 fzf 내장 탐색기를 쓸 수 없습니다.** fzf는 표준 입력이 터미널일 때만 내장 탐색기(`--walker`)를 씁니다. PSFzf에서 fzf를 그렇게 띄우는 함수는 `Invoke-FzfDefaultSystem` 하나이고, `Ctrl+T`의 기본 경로에서만 호출됩니다. `Alt+C` 핸들러는 항상 목록 명령의 출력을 `Invoke-Fzf`로 파이프하고, `Invoke-Fzf`는 fzf의 표준 입력을 파이프로 연결하므로 내장 탐색기가 동작하지 않습니다. 내장 탐색기를 쓰려면 PSFzf의 `Alt+C` 대신 키 핸들러를 직접 만들어야 하는데, 이 프로파일은 PSFzf 기능 위에서 동작하는 것을 원칙으로 합니다. 속도 이점도 없습니다. 같은 폴더 목록을 만드는 `fzf --walker=dir,hidden`이 코드 저장소가 모인 폴더에서 0.70초, 사용자 홈에서 5.54초로, 이 프로파일의 `Alt+C`(0.47초, 4.08초)보다 느렸습니다.
+- **fd는 선택 사항입니다.** 필수 설치 항목을 늘리지 않으려고 fd가 있을 때만 값을 설정합니다. fd가 없으면 PSFzf 기본(`cmd dir`)으로 동작하고, 그 경로의 문제 3은 래퍼가 이미 해결합니다.
+- **기존 해결책과 함께 동작합니다.** fd는 콘솔 코드 페이지와 관계없이 항상 UTF-8로 출력합니다. PowerShell은 외부 프로그램 출력을 콘솔 출력 코드 페이지로 읽으므로, 949에서는 한글을 포함해 ASCII가 아닌 이름이 모두 깨집니다. CP949에 없는 글자만 깨지던 `cmd dir`보다 더 넓게 깨집니다. `Alt+C`는 래퍼 안에서 실행되므로 UTF-8로 읽히고, 이동은 그대로 `Set-Location -LiteralPath`(4-1)가 처리합니다. 원인은 문제 3과 다르지만 같은 래퍼로 해결되므로, fd를 써도 래퍼는 필요합니다.
+  - 확인한 결과: 코드 페이지 949 콘솔에서 `報告書 [最終版]`, `한글_폴더`, `café`, `込み辻`, 숨김 폴더 `.hidden`, `.gitignore`에 적힌 `build`로 모두 이동했고, `.git`과 `node_modules`는 목록에 나오지 않았습니다. 래퍼 없이 실행하면 `한글_폴더`로 이동하지 못했습니다.
+
+#### `cmd dir`과 다른 점과 바꾸는 방법
+
+fd 목록에는 숨김 폴더와 `.gitignore`에 적힌 폴더가 모두 들어갑니다. `cmd dir`과 다른 점은 다음과 같습니다.
+
+- `.git`과 `node_modules`라는 이름의 폴더는 어디에 있든 그 안의 폴더까지 뺍니다.
+- `cmd dir`은 정션(`My Documents`, `Application Data` 같은 호환용 폴더 등)을 폴더로 세고, 들어갈 수 있으면 그 안의 폴더까지 다시 나열합니다. fd는 정션을 링크로 취급해 목록에서 뺍니다. 그래서 같은 폴더가 정션 경로와 실제 경로로 두 번 나오지 않는 대신, 정션 경로로는 이동할 수 없고 실제 경로를 골라야 합니다.
+- `fd --help`에는 점으로 시작하는 이름만 숨김으로 적혀 있지만, Windows에서는 숨김 속성 폴더(AppData 등)도 숨김으로 취급합니다. `--hidden`을 빼면 이런 폴더와 그 아래 폴더가 모두 빠집니다.
+
+이 규칙은 `Ctrl+T`가 쓰는 fzf 내장 탐색기에 점 폴더를 더한 것(`--walker=dir,hidden`, 기본 `--walker-skip=.git,node_modules`)과 같습니다. 두 목록을 비교하면 코드 저장소가 모인 폴더에서는 같았고, 사용자 홈에서는 휴대폰 연결(CrossDevice)이 만든 특수 폴더 아래 28개만 fd에 더 있었습니다.
+
+다른 값을 쓰려면 `$PROFILE`에서 psfzf-profile을 불러온 **뒤**에 바꿉니다. `Get-PsFzfAltCDirectory`의 인자는 fd에 그대로 넘어가므로 묶음 방식은 그대로 유지됩니다.
+
+```powershell
+$env:FZF_ALT_C_COMMAND = 'Get-PsFzfAltCDirectory --hidden --no-ignore'                            # .git, node_modules도 포함
+$env:FZF_ALT_C_COMMAND = 'Get-PsFzfAltCDirectory --hidden --exclude .git --exclude node_modules'  # .gitignore에 적힌 폴더도 제외
+$env:FZF_ALT_C_COMMAND = 'Get-PsFzfAltCDirectory'                                                 # 숨김·무시된 폴더 제외
+Remove-Item Env:FZF_ALT_C_COMMAND                                                                 # PSFzf 기본(cmd dir)으로
+```
+
 ---
 
 ## English
 
 A PowerShell 7 profile for using [fzf](https://github.com/junegunn/fzf) and [PSFzf](https://github.com/kelleyma49/PSFzf) without problems on Korean Windows (code page 949).
-It does not modify the PSFzf module; it only uses `Set-PsFzfOption` and functions that PSFzf exports.
+It does not modify the PSFzf module; it only uses `Set-PsFzfOption`, functions that PSFzf exports, and environment variables documented in the PSFzf README.
 
 This repository has two branches with different approaches:
 
@@ -267,6 +345,7 @@ See "Alternative: the `utf8-codepage` branch" below for the differences.
 | PSReadLine | 2.4.5 |
 | PSFzf | 2.7.12 |
 | fzf | 0.75.0 |
+| fd (optional) | 10.5.0 |
 | Terminal | Alacritty + Zellij |
 
 It may work with other versions, but the analysis below is based on the source code of these versions.
@@ -287,10 +366,13 @@ This profile **does not change the console code page (949).** It switches to UTF
 
 fzf opens in a partial window 60% high for every action. See "Note: full screen vs. partial window" below to change the size.
 
+If fd is installed, the `Alt+C` list is built with fd. See "Note: building the `Alt+C` list with fd" below.
+
 ### Installation
 
 ```powershell
 winget install junegunn.fzf
+winget install sharkdp.fd                # optional: build the Alt+C list with fd
 Install-Module PSFzf -Scope CurrentUser
 git clone <this repository URL> <your path>\psfzf-profile
 ```
@@ -481,3 +563,77 @@ $env:_PSFZF_FZF_DEFAULT_OPTS = '--no-height'                    # full screen
 ```
 
 In a partial window fzf uses the light renderer, so Problem 1 applies to every action. The keys and `fkill` in this profile run inside the wrapper, so they are fine. But if you run a PSFzf function directly (e.g. `Get-ChildItem | Invoke-Fzf`), it does not go through the wrapper, and fzf exits as soon as you type Korean. Run such commands wrapped, as in `Invoke-PsFzfWithUtf8Console { Get-ChildItem | Invoke-Fzf }`, or use full screen (`--no-height`).
+
+### Note: building the `Alt+C` list with fd
+
+If [fd](https://github.com/sharkdp/fd) is installed, this profile builds the `Alt+C` list with fd instead of PSFzf's default (`cmd /c dir /s/b/ad`). Without fd, PSFzf's default behavior is used as is.
+
+```powershell
+function Get-PsFzfAltCDirectory {
+    $batch = [System.Collections.Generic.List[string]]::new(1000)
+    fd --type directory @args | ForEach-Object {
+        $batch.Add($_)
+        if ($batch.Count -ge 1000) { $batch -join "`n"; $batch.Clear() }
+    }
+    if ($batch.Count -gt 0) { $batch -join "`n" }
+}
+$env:FZF_ALT_C_COMMAND = 'Get-PsFzfAltCDirectory --hidden --no-ignore --exclude .git --exclude node_modules'
+```
+
+When `FZF_ALT_C_COMMAND` is set, PSFzf builds the `Alt+C` list from that command's output. `Get-PsFzfAltCDirectory` passes its arguments to fd as is and emits fd's output in batches of 1,000 lines. With `--hidden --no-ignore`, hidden folders and folders listed in `.gitignore` all appear in the list, and `--exclude` leaves out `.git` and `node_modules`.
+
+#### Why fd was added
+
+Because it is faster than PSFzf's default (`cmd dir`). The times below are how long PSFzf's real `Alt+C` handler took to receive the whole list, as the median of three runs. fzf was given a `--filter` that matches nothing so that it read the whole list; drawing the screen is not included.
+
+| Location | `cmd dir` (PSFzf default) | fd (this profile) |
+|---|---|---|
+| Folder holding code repositories | 26,010 folders, 2.69 s | 20,972 folders, 0.47 s |
+| User home (including AppData) | 151,013 folders, 18.09 s | 133,909 folders, 4.08 s |
+
+The fd list is shorter because it leaves out `.git`, `node_modules` and junctions (see "Differences from `cmd dir`" below).
+
+#### Why the output is passed in batches of 1,000 lines
+
+PSFzf pipes the output of `FZF_ALT_C_COMMAND` into `Invoke-Fzf`, which passes it to fzf. For each item it receives, `Invoke-Fzf` writes a line to fzf's input, calls `Flush()` and checks the fzf process status. When fd's output is passed one line at a time, this repeats for every folder, and for a large list it takes longer than fd itself.
+
+| Location | fd piped straight into fzf (reference) | fd, one line at a time | fd, batches of 1,000 lines |
+|---|---|---|---|
+| Folder holding code repositories | 0.44 s | 1.31 s | 0.47 s |
+| User home (including AppData) | 3.32 s | 9.10 s | 4.08 s |
+
+`Invoke-Fzf` writes each string it receives as is with `WriteLine`, so a string holding many lines reaches fzf as the same list of lines. Batches of 1,000 lines cut the number of items to a thousandth, and the time becomes almost the same as piping fd straight into fzf. The output is split into batches instead of being joined into one string so that the fzf list keeps filling up before fd finishes.
+
+What was checked:
+
+- fzf receives the same list of folders whether the output is passed one line at a time or in batches. The lists were sorted and compared; fd searches in parallel, so only the order changes between runs.
+- With batch sizes 1, 2, 3 and 1,000, `Alt+C` changed to the same folders. Lines inside a batch end with `\n` and the last line of a batch ends with `\r\n`, and fzf reads both the same way.
+- When fzf exits before the list is complete (e.g. Esc), everything is cleaned up right away and no fd process is left behind.
+
+#### Why it is implemented this way
+
+- **`FZF_ALT_C_COMMAND` is used instead of `Set-PsFzfOption -EnableFd`.** PSFzf has an option to use fd, but in 2.7.12 it does not work correctly on Windows. PSFzf runs fd as `fd . --full-path <path> --fixed-strings`. Because of `--fixed-strings` it looks for a literal `.`, and because of `--full-path` it looks for it in the whole absolute path, so **entries whose absolute path contains no `.` are dropped from the list.** In a folder without a dot the `Alt+C` list was empty, and in the folder holding code repositories only 1,895 of 6,916 folders appeared, even with hidden and ignored folders left out of the comparison. `Ctrl+T` also drops files without an extension and folders. `FZF_ALT_C_COMMAND`, on the other hand, is an environment variable documented under "Overriding Behavior" in the PSFzf README, so it also fits this profile's rule of not modifying PSFzf code.
+- **fd is used for `Alt+C` only, not for `Ctrl+T`.** The default `Ctrl+T` path uses fzf's built-in walker and is already fast. Moreover, when `FZF_CTRL_T_COMMAND` is set, PSFzf ignores the path at the cursor and always runs that command, so the feature that starts the search from the path at the cursor would be lost.
+- **fzf's built-in walker cannot be used for `Alt+C`.** fzf uses its built-in walker (`--walker`) only when its standard input is a terminal. The only PSFzf function that starts fzf that way is `Invoke-FzfDefaultSystem`, and it is called only on the default `Ctrl+T` path. The `Alt+C` handler always pipes the list command's output into `Invoke-Fzf`, and `Invoke-Fzf` connects fzf's standard input to a pipe, so the walker never runs. Using the walker would mean replacing PSFzf's `Alt+C` with a key handler of our own, while this profile is meant to work on top of PSFzf's features. There would be no speed gain either: `fzf --walker=dir,hidden`, which builds the same folder list, took 0.70 s in the folder holding code repositories and 5.54 s in the user home, slower than this profile's `Alt+C` (0.47 s and 4.08 s).
+- **fd is optional.** To avoid adding a required dependency, the value is set only when fd is installed. Without fd, PSFzf's default (`cmd dir`) is used, and the wrapper already fixes Problem 3 on that path.
+- **It works with the existing fixes.** fd always writes UTF-8, regardless of the console code page. PowerShell reads native program output with the console output code page, so under 949 every non-ASCII name, Korean included, is garbled. That is wider than `cmd dir`, which only garbled characters outside CP949. `Alt+C` runs inside the wrapper, so the output is read as UTF-8, and the location change is still handled by `Set-Location -LiteralPath` (4-1). The cause differs from Problem 3, but the same wrapper fixes it, so the wrapper is still needed with fd.
+  - Result: in a code page 949 console, `Alt+C` changed to `報告書 [最終版]`, `한글_폴더`, `café`, `込み辻`, the hidden folder `.hidden` and `build`, which is listed in `.gitignore`, while `.git` and `node_modules` did not appear in the list. Without the wrapper, it could not change to `한글_폴더`.
+
+#### Differences from `cmd dir` and how to change them
+
+The fd list includes hidden folders and folders listed in `.gitignore`. It differs from `cmd dir` as follows:
+
+- Folders named `.git` or `node_modules` are left out wherever they are, together with the folders inside them.
+- `cmd dir` counts junctions (compatibility folders such as `My Documents` and `Application Data`, etc.) as folders and, when it can enter them, lists the folders inside them again. fd treats junctions as links and leaves them out. As a result the same folder does not appear twice, once through the junction and once through its real path, but you cannot change to a junction path and have to pick the real path.
+- `fd --help` only mentions names starting with a dot as hidden, but on Windows fd also treats folders with the hidden attribute (such as AppData) as hidden. Without `--hidden`, these folders and everything below them are left out.
+
+These rules match fzf's built-in walker used by `Ctrl+T` with dot folders added (`--walker=dir,hidden` with the default `--walker-skip=.git,node_modules`). Comparing the two lists, they were the same in the folder holding code repositories, and in the user home fd only had 28 more folders under a special folder created by Phone Link (CrossDevice).
+
+To use a different value, change it in your `$PROFILE` **after** loading psfzf-profile. The arguments of `Get-PsFzfAltCDirectory` go straight to fd, so the batching is kept.
+
+```powershell
+$env:FZF_ALT_C_COMMAND = 'Get-PsFzfAltCDirectory --hidden --no-ignore'                            # also include .git and node_modules
+$env:FZF_ALT_C_COMMAND = 'Get-PsFzfAltCDirectory --hidden --exclude .git --exclude node_modules'  # also leave out folders listed in .gitignore
+$env:FZF_ALT_C_COMMAND = 'Get-PsFzfAltCDirectory'                                                 # leave out hidden and ignored folders
+Remove-Item Env:FZF_ALT_C_COMMAND                                                                 # back to the PSFzf default (cmd dir)
+```
