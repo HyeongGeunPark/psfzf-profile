@@ -10,7 +10,7 @@
 #   **<Tab> : git / Get-Process / Get-Service 등 인자 완성
 #   fkill   : 프로세스를 골라 종료
 #
-# PSFzf 모듈 코드는 수정하지 않고, Set-PsFzfOption 과 PSFzf 공개 함수만 사용한다.
+# PSFzf 모듈 코드는 수정하지 않고, Set-PsFzfOption, PSFzf 공개 함수, PSFzf README 에 문서화된 환경 변수만 사용한다.
 # 콘솔 코드 페이지 949 를 유지하고 PSFzf 동작 중에만 UTF-8 로 바꾸는 버전은 main 브랜치에 있다.
 
 # [콘솔 코드 페이지를 UTF-8(65001)로 고정]
@@ -43,6 +43,34 @@ Import-Module PSFzf
 # 부분 화면(light 렌더러)의 한글 입력 문제(위 1)는 위 코드 페이지 설정으로 이미 해결된다.
 # 다른 값을 쓰려면 $PROFILE 에서 이 파일을 불러온 뒤 지정한다.
 $env:_PSFZF_FZF_DEFAULT_OPTS = '--height=60% --layout=reverse'
+
+# [Alt+C 목록: fd]
+# fd 가 있으면 Alt+C 목록을 PSFzf 기본값(cmd /c dir /s/b/ad) 대신 fd 로 만든다. 기본값보다 빠르다.
+# 숨김 폴더(점으로 시작하는 폴더, AppData 같은 Windows 숨김 속성 폴더)와 .gitignore 에 적힌 폴더도
+# fd 의 --hidden --no-ignore 로 모두 포함하고, .git 과 node_modules 는 뺀다.
+# cmd dir 과 달리 정션은 목록에 나오지 않는다.
+# fd 는 항상 UTF-8 로 출력하며, 위 코드 페이지 설정 덕분에 그대로 읽힌다.
+# Set-PsFzfOption -EnableFd 는 쓰지 않는다. PSFzf 2.7.12 는 fd 를 `fd . --full-path <경로> --fixed-strings`
+# 로 실행해서, 절대 경로에 '.' 이 없는 항목을 목록에서 뺀다.
+# Ctrl+T 는 커서 위치의 경로에서 검색을 시작하는 기능을 유지하려고 PSFzf 기본값(fzf 내장 탐색기)을 쓴다.
+if (Get-Command fd -CommandType Application -ErrorAction SilentlyContinue) {
+    # PSFzf 는 이 명령의 출력을 Invoke-Fzf 로 넘기고, Invoke-Fzf 는 받은 항목마다 fzf 입력에 한 줄을
+    # 쓰고 Flush 하고 프로세스 상태를 확인한다. 1000 줄씩 한 문자열로 묶어 넘기면 fzf 는 같은 목록을
+    # 받고, 항목 처리 횟수는 1000 분의 1 로 준다. 홈 폴더(약 13만 개)에서 한 줄씩 넘기면 Alt+C 목록이
+    # 다 차는 데 9초, 묶어 넘기면 4초 정도 걸린다.
+    # fzf 내장 탐색기(--walker)는 쓸 수 없다. fzf 는 표준 입력이 터미널일 때만 내장 탐색기를 쓰는데,
+    # PSFzf 의 Alt+C 는 항상 이 명령의 출력을 Invoke-Fzf 로 파이프해 fzf 표준 입력에 넣는다.
+    # 인자는 fd 에 그대로 넘긴다. (예: Get-PsFzfAltCDirectory --hidden --no-ignore)
+    function Get-PsFzfAltCDirectory {
+        $batch = [System.Collections.Generic.List[string]]::new(1000)
+        fd --type directory @args | ForEach-Object {
+            $batch.Add($_)
+            if ($batch.Count -ge 1000) { $batch -join "`n"; $batch.Clear() }
+        }
+        if ($batch.Count -gt 0) { $batch -join "`n" }
+    }
+    $env:FZF_ALT_C_COMMAND = 'Get-PsFzfAltCDirectory --hidden --no-ignore --exclude .git --exclude node_modules'
+}
 
 Set-PsFzfOption `
     -PSReadlineChordProvider 'Ctrl+t' `
